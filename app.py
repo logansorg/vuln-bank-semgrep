@@ -2478,10 +2478,10 @@ def ai_rate_limit_status():
 def export_transactions(current_user):
     """Export transaction history to a file for download."""
     try:
-        file_format = request.args.get('format', 'csv')
+        requested_format = request.args.get('format', 'csv')
         date_from = request.args.get('from', '')
         date_to = request.args.get('to', '')
-        filename = request.args.get('filename', f"transactions_{current_user['user_id']}")
+        raw_filename = request.args.get('filename', f"transactions_{current_user['user_id']}")
 
         query = f"SELECT * FROM transactions WHERE sender_id={current_user['user_id']}"
         if date_from:
@@ -2493,7 +2493,15 @@ def export_transactions(current_user):
 
         export_dir = '/tmp/exports'
         os.makedirs(export_dir, exist_ok=True)
-        export_path = f"{export_dir}/{filename}.{file_format}"
+
+        # Sanitize filename and restrict file format
+        filename = secure_filename(raw_filename) or f"transactions_{current_user['user_id']}"
+        allowed_formats = {'csv'}
+        file_format = requested_format.lower()
+        if file_format not in allowed_formats:
+            file_format = 'csv'
+
+        export_path = os.path.join(export_dir, f"{filename}.{file_format}")
 
         with open(export_path, 'w') as f:
             if results:
@@ -2504,9 +2512,16 @@ def export_transactions(current_user):
 
         # Post-process the exported file (e.g., compress or convert)
         if request.args.get('compress') == 'true':
-            output_archive = f"{export_dir}/{filename}.tar.gz"
-            cmd = f"tar -czf {output_archive} -C {export_dir} {filename}.{file_format}"
-            subprocess.call(cmd, shell=True)
+            output_archive = os.path.join(export_dir, f"{filename}.tar.gz")
+            # Use argument list and avoid shell=True to prevent command injection
+            subprocess.call([
+                "tar",
+                "-czf",
+                output_archive,
+                "-C",
+                export_dir,
+                f"{filename}.{file_format}",
+            ])
             export_path = output_archive
 
         return jsonify({
